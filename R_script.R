@@ -11,7 +11,7 @@ library(biomaRt)
 
 ensembl <- useMart("ensembl", dataset = "hsapiens_gene_ensembl")
 
-enst_list <- readLines("PABPC4_binding_genes.txt")
+enst_list <- readLines("./YOA-work2/TIA1_binding_genes.txt")
 enst_list_noversion <- sub("\\..*", "", enst_list) # 버전 제거
 
 
@@ -24,7 +24,7 @@ result <- getBM(
 
 
 symbols <- unique(result$hgnc_symbol[result$hgnc_symbol != ""])
-write(symbols, file = "binding_genes_symbol.txt")
+write(symbols, file = "./YOA-work2/binding_genes_symbol.txt")
 
 
 if (!requireNamespace("clusterProfiler", quietly = TRUE)) {
@@ -38,6 +38,7 @@ if (!requireNamespace("org.Hs.eg.db", quietly = TRUE)) {
 library(clusterProfiler)
 library(org.Hs.eg.db)
 
+symbols <- readLines("./YOA-work2/binding_genes_symbol.txt")
 
 ego_BP <- enrichGO(
   gene         = symbols,
@@ -51,7 +52,7 @@ ego_BP <- enrichGO(
 )
 
 head(ego_BP)
-
+ego_BP_result <- as.data.frame(ego_BP)
 
 ego_MF <- enrichGO(
   gene         = symbols,
@@ -137,16 +138,76 @@ table(gost$result$source)
 
 go.bp <- gost$result %>% filter(source == "GO:BP")
 go.cc <- gost$result %>% filter(source == "GO:CC")
-go.mf <- gost$result %>% filter(source == "GO:MF")
-go.kegg <- gost$result %>% filter(source == "KEGG")
-go.hp <- gost$result %>% filter(source == "HP")
-go.hpa <- gost$result %>% filter(source == "HPA")
-go.mirna <- gost$result %>% filter(source == "MIRNA")
-go.reac <- gost$result %>% filter(source == "REAC")
-go.tf <- gost$result %>% filter(source == "TF")
-go.wp <- gost$result %>% filter(source == "WP")
+
+
+go.bp_fixed <- go.bp %>%
+  mutate(across(where(is.list), ~sapply(., paste, collapse = ",")))
+
+write.csv(go.bp_fixed,
+          file = "./YOA-work2/TIA1_GO_BP_enrichment.csv",
+          row.names = FALSE)
+
+go.cc_fixed <- go.cc %>%
+  mutate(across(where(is.list), ~sapply(., paste, collapse = ",")))
+
+write.csv(go.cc_fixed,
+          file = "./YOA-work2/TIA1_GO_CC_enrichment.csv",
+          row.names = FALSE)
 
 
 
+library(ggplot2)
+library(dplyr)
 
-table(gost$result$source)
+
+top_terms_bp <- go.bp %>%
+  arrange(p_value) %>%
+  slice_head(n = 20)
+
+ggplot(top_terms_bp, aes(x = reorder(term_name, -log10(p_value)),
+                      y = -log10(p_value),
+                      size = intersection_size)) +
+  geom_point(color = "tomato") +
+  coord_flip() +
+  labs(title = "GO:BP Enrichment for eCLIP Targets",
+       x = "GO term",
+       y = "-log10(p-value)",
+       size = "Gene count") +
+  theme_minimal()
+
+top_terms_cc <- go.cc %>%
+  arrange(p_value) %>%
+  slice_head(n = 10)
+
+ggplot(top_terms_cc, aes(x = reorder(term_name, -log10(p_value)),
+                         y = -log10(p_value),
+                         size = intersection_size)) +
+  geom_point(color = "tomato") +
+  coord_flip() +
+  labs(title = "GO:CC Enrichment for eCLIP Targets",
+       x = "GO term",
+       y = "-log10(p-value)",
+       size = "Gene count") +
+  theme_minimal()
+
+
+
+stress_granule = read.csv("./YOA-data/stress granule transcriptome data.csv")
+sig_SG <- subset(stress_granule, significant == "yes")
+
+
+if (!require("VennDiagram")) install.packages("VennDiagram")
+library(VennDiagram)
+
+venn.plot <- draw.pairwise.venn(
+  area1 = length(sig_SG$gene),
+  area2 = length(symbols),
+  cross.area = length(intersect(sig_SG$gene, symbols)),
+  category = c("sig_SG", "TIA-1 binding gene"),
+  fill = c("skyblue", "pink"),
+  cex = 1.5,
+  cat.cex = 1.5,
+  cat.pos = c(-20, 20),
+  cat.dist = 0.05
+)
+
